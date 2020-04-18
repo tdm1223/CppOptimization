@@ -10,3 +10,5 @@
 ### [2. 컴퓨터 하드웨어와 최적화](https://github.com/tdm1223/CppOptimization/blob/master/ch02.md)
 
 ### [3. 성능 측정](https://github.com/tdm1223/CppOptimization/blob/master/ch03.md)
+
+### [4. 문자열 최적화](https://github.com/tdm1223/CppOptimization/blob/master/ch04.md)
