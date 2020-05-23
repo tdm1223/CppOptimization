@@ -5,10 +5,12 @@
 - ![content](https://user-images.githubusercontent.com/21440957/76327541-7cff3680-632d-11ea-8cfe-64493f24a3a9.jpg)
 
 ## 목차
-### [1. 최적화란](https://github.com/tdm1223/CppOptimization/blob/master/ch01.md)
+### [1. 최적화란](chapter/ch01.md)
 
-### [2. 컴퓨터 하드웨어와 최적화](https://github.com/tdm1223/CppOptimization/blob/master/ch02.md)
+### [2. 컴퓨터 하드웨어와 최적화](chapter/ch02.md)
 
-### [3. 성능 측정](https://github.com/tdm1223/CppOptimization/blob/master/ch03.md)
+### [3. 성능 측정](chapter/ch03.md)
 
-### [4. 문자열 최적화](https://github.com/tdm1223/CppOptimization/blob/master/ch04.md)
+### [4. 문자열 최적화](chapter/ch04.md)
+
+### [5. 알고리즘 최적화](chapter/ch05.md)
