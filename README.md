@@ -8,3 +8,5 @@
 ### [1. 최적화란](/chapter/Chapter1.md)
 
 ### [2. 컴퓨터 하드웨어와 최적화](/chapter/Chapter2.md)
+
+### [3. 성능 측정](/chapter/Chapter3.md)
