@@ -175,3 +175,100 @@ void remove_ctrl_cstrings(char* dest, char const* src, size_t size)
 - 메모리 할당 및 관련 복사 연산을 제거하는 작업처럼 간단한 규칙을 적용해 성능 개선을 할 수 있다.
 - 릴리즈 빌드에서 성능 개선이 얼마나 되었는지 더욱 뚜렷하게 나타난다.
   - [암달의 법칙](/chapter/Chapter3.md) 때문이다.
+
+## 4.3 문자열 최적화 두 번째 시도
+### 4.3.1 더 좋은 알고리즘을 사용하세요
+#### remove_ctrl_block
+- `remove_ctrl()` 함수는 **한 번에 하나의 문자**를 결과 문자열로 복사하는 알고리즘을 사용한다.
+- 부분 문자열 전체를 결과 문자열로 이동하여 개선한다면 **7배**가 빨라진다.
+```cpp
+std::string remove_ctrl_block(std::string s) 
+{
+    std::string result;
+    for (size_t b = 0, i = b, e = s.length(); b < e; b = i + 1) 
+    {
+        for (i = b; i < e; ++i) 
+        {
+            if (s[i] < 0x20)
+            {
+                break;
+            }
+        }
+        result = result + s.substr(b, i - b);
+    }
+    return result;
+}
+```
+
+#### remove_ctrl_block_append
+- `substr()`은 **임시 문자열**을 생성하기 때문에 **append() 멤버 함수**를 사용하면 **임시 문자열**을 만들지 않고도 부분 문자열을 복사할 수 있다.
+
+```cpp
+std::string remove_ctrl_block_append(std::string s) 
+{
+    std::string result;
+    result.reserve(s.length());
+    for (size_t b = 0, i = b; b < s.length(); b = i + 1) 
+    {
+        for (i = b; i < s.length(); ++i) 
+        {
+            if (s[i] < 0x20)
+            {
+                break;
+            }
+        }
+        result.append(s, b, i - b);
+    }
+    return result;
+}
+```
+
+#### remove_ctrl_erase
+- `std::string`의 `erase()` 멤버 함수를 사용해 매개변수의 **문자를 제거하는 방법**으로 성능을 개선할 수도 있다.
+- s의 길이가 짧아지기 떄문에 반환값을 제외하고는 재할당할 일이 절대로 없다.
+- `remove_ctrl()` 보다 30바 빠르다.
+```cpp
+std::string remove_ctrl_erase(std::string s)
+{
+    for (size_t i = 0; i < s.length(); )
+    {
+        if (s[i] < 0x20)
+        {
+            s.erase(i, 1);
+        }
+        else
+        {
+            ++i;
+        }
+    }
+    return s;
+}
+```
+
+### 4.3.2 더 좋은 컴파일러를 사용하세요
+- `Visual Studio 2013`은 일부 함수를 빠르게 만들어주는 이동 문법을 구현했지만 테스트 결과는 뒤죽박죽이다.
+- 디버거에서 실행할 경우 2013이 2010보다 5~15% 더 빠르다.
+- `Visual Studio 2015`또한 `Visual Studio 2010`보다 느리게 측정이 되었다.
+
+### 4.3.3 더 좋은 문자열 라이브러리를 사용하세요
+- `std::string`은 사용하는 사람이 자유롭게 구현할 수 있도록 아래 내용들이 정의되었다.
+  1. 다른 표준 라이브러리 컨테이너와 마찬가지로 문자열의 각 문자에 접근할 수 있는 반복자를 제공한다.
+  2. `operator[]`을 사용해 요소에 접근하는 배열식 색인 표기법을 제공한다.
+  3. `BASIC` 문자열과 유사하게 값 의미론으로 구현한 연결 연산자와 값을 반환하는 함수가 있다.
+  4. 제한된 연산 집합을 제공한다.
+- `std::string`의 작동 때문에 최적화 상황에서 몇 가지 약점이 발생한다.
+  1. 더 많은 기능을 가진 `std::string` 라이브러리 채택
+     - 부스트 문자열 라이브러리
+     - C++ 문자열 툴킷 라이브러리
+  2. `std::stringstream`을 사용해 값 의미를 피하기
+  3. 새로 구현된 문자열을 채택하기
+     1. `std::string_view`
+     2. `folly::fbstring`
+        - 페이스북이 만든 라이브러리
+     3. 문자열 클래스의 도구 상자
+     4. `C++03` 표현식 템플릿
+     5. `rope<T,alloc>`
+
+### 4.3.4 더 좋은 할당자를 사용하세요
+- `std::string`의 내부에는 동적으로 할당된 `char` 배열이 있다.
+- `::operator new()`와 `::operator delete()`는 매우 복잡하고 어려운 작업을 하며 모든 종류의 동적 변수마다 저장 공간을 할당한다.
