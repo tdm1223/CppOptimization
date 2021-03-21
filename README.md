@@ -10,3 +10,5 @@
 ### [2. 컴퓨터 하드웨어와 최적화](/chapter/Chapter2.md)
 
 ### [3. 성능 측정](/chapter/Chapter3.md)
+
+### [4. 문자열 최적화](/chapter/Chapter4.md)
