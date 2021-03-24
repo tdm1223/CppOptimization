@@ -5,10 +5,10 @@
 - ![content](https://user-images.githubusercontent.com/21440957/76327541-7cff3680-632d-11ea-8cfe-64493f24a3a9.jpg)
 
 ## 목차
-### [1. 최적화란](/chapter/Chapter1.md)
+### [1. 최적화란](/Chapter/Chapter1.md)
 
-### [2. 컴퓨터 하드웨어와 최적화](/chapter/Chapter2.md)
+### [2. 컴퓨터 하드웨어와 최적화](/Chapter/Chapter2.md)
 
-### [3. 성능 측정](/chapter/Chapter3.md)
+### [3. 성능 측정](/Chapter/Chapter3.md)
 
-### [4. 문자열 최적화](/chapter/Chapter4.md)
+### [4. 문자열 최적화](/Chapter/Chapter4.md)
