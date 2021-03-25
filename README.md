@@ -12,3 +12,5 @@
 ### [3. 성능 측정](/Chapter/Chapter3.md)
 
 ### [4. 문자열 최적화](/Chapter/Chapter4.md)
+
+### [5. 알고리즘 최적화](/Chapter/Chapter5.md)
