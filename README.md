@@ -18,3 +18,5 @@
 ### [6. 동적 할당 변수 최적화](/Chapter/Chapter6.md)
 
 ### [7. 문장 최적화](/Chapter/Chapter7.md)
+
+### [8. 라이브러리 최적화](/Chapter/Chapter8.md)
