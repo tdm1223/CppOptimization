@@ -184,3 +184,137 @@ template <typename KeyType, typename ValueType> struct value_type {
 - `std::set`은 기본적으로 `std::less`로 **두 요소 전체를 비교**하는 비교 함수를 사용한다.
 - `std::set`과 자체적인 키를 포함하는 사용자 정의 구조체를 사용하려면 ?
   - 사용자 정의 구조체에 대해 `std::less`나 `operator<`를 특수화하거나 디폴트가 아닌 비교 객체를 제공해야 한다.
+
+## 9.4 <algorithm> 헤더를 사용한 검색 최적화
+### 9.4.1 시퀀스 컨테이너의 검색을 위한 키/값 테이블
+- 시퀀스 컨테이너에서 `std::map`이나 `std::set`을 사용한 구현이 아닌 키/값 테이블을 사용한 구현을 선택해야 하는 이유 ?
+  - 시퀀스 컨테이너는 맵보다 **메모리를 적게 소비**하고 **설정하는 비용이 저렴**하다.
+```cpp
+struct kv { 
+  char const* key;  // 키
+  unsigned value;   // 무엇이든 될 수 있다.
+}
+```
+- 표준 라이브러리 알고리즘의 유용한 특성중 하나는 모든 타입의 배열을 처리할 수 있다는 것이다.
+- 표준 라이브러리 컨테이너 클래스는 멤버 함수 `begin()`과 `end()`를 제공하기 때문에 프로그램은 반복자를 사용해 범위 기반 검색을 할 수 있다.
+- C 스타일 배열은 원시적이므로 반복자 함수를 제공하지 않아 구현해야 한다.
+```cpp
+// C 스타일 배열에서 크기와 시작 / 끝을 구하기
+template<typename T, int N> size_t size(T(&a)[N])
+{
+    return N;
+}
+template<typename T, int N> T* begin(T(&a)[N])
+{
+    return &a[0];
+}
+template<typename T, int N> T* end(T(&a)[N])
+{
+    return &a[N];
+}
+```
+
+### 9.4.2 이름이 명확하고 시간 비용이 O(n)인 std::find()
+- `algorithm` 헤더의 템플릿 함수 `find()`
+```cpp
+template<class It, class T> find(It first, It last, const T& key)
+```
+- `find()` 알고리즘은 **선형 검색 알고리즘**이다.
+- 선형 검색은 가장 일반적인 검색 유형으로 검색할 테이터가 **정렬되지 않아도 된다.**
+- `find()`는 시퀀스 컨테이너에서 `key`와 똑같은 값을 갖는 **첫 번째 항목**을 가리키는 반복자를 반환한다.
+```cpp
+kv* result = std::find(std::begin(names), std::end(names), key);
+```
+
+### 9.4.3 값을 반환하지 않는 std::binary_search()
+- 이진 검색은 **분할 정복 전략**을 사용한다.
+- 표준 라이브러리 알고리즘 `binary_search()`는 **정렬된 테이블에 키가 있는지** 나타내는 `bool` 값을 반환한다.
+  - 일치하는 테이블 요소를 반환하는 함수는 없다.
+- 테이블에서 값을 찾는 대신 **값의 존재 여부**만 알고 싶다면 `std::binary_search()`를 사용하면 된다.
+
+### 9.4.4 std::equal_range()를 사용한 이진 검색
+- 시퀀스 컨테이너가 정렬되어 있다면 `C++` 표준 라이브러리에서 제공하는 것을 사용해 효율적인 검색 함수를 맞출 수 있다.
+- 표준 라이브러리에서 제공하는 함수들은 이진 검색의 개념을 연상시키는 이름을 갖지 않는다.
+```cpp
+template<class ForwardIt, class T>
+std::pair<ForwardIt, ForwardIt>
+  equal_range(ForwardIt first, ForwardIt last, const T& value);
+```
+- `equal_range()`는 **정렬된 시퀀스**에서 값과 똑같은 항목들을 포함하는 **서브 시퀀스의 범위**를 구분한 반복자 쌍을 반환한다.
+  - 값과 똑같은 항목이 없다면 똑같은 값을 가리키는 반복자 쌍을 반환한다.
+- 반환된 반복자가 다른 값을 가리킨다면 적어도 값과 일치하는 항목이 1개는 존재한다는 것이다.
+- `equal_range()`의 시간 복잡도는 `O(logN)`을 보장한다.
+```cpp
+auto res = std::equal_range(std::begin(names), std::end(names), key);
+kv* result = (res.first == res.second) ? std::end(names) : res.first;
+```
+- 그러나 성능 측정 결과 선형 검색보다 결과가 좋지 않다.
+  - `equal_range()`가 이진 검색 함수를 위한 최선의 선택이 아니라는 것을 알 수 있다.
+
+### 9.4.5 std::lower_bound()를 사용한 이진 검색
+- `std::lower_bound()`를 사용한 이진 검색
+```cpp
+kv* result = std:lower_bound(std::begin(names), std::end(names), key);
+if (result != std::end(names) && key < *result.key)
+{
+  result = std::end(names);
+}
+```
+- `std::lower_bound()`는 키가 `key`보다 **작지 않은 테이블의 첫 번째 항목**을 가리키는 반복자를 반환한다.
+- 모든 항목이 `key`보다 작을 경우 테이블의 **끝을 가리키는 반복자**를 반환한다.
+- `std::equal_range()`보다 **86%** 빠르다.
+- `std::map`을 사용해 구현한 코드와 견줄만한 성능을 갖는다.
+- 정적 테이블을 생성하거나 파괴하는 비용이 0이라는 장점도 있다.
+
+### 9.4.6 직접 코딩한 이진 검색
+- 표준 라이브러리 함수와 똑같은 인수를 사용해 **이진 검색을 직접 구현**할 수 있다.
+- 표준 라이브러리 알고리즘은 모두 **하나의 비교 함수 operator<()**를 사용한다.
+  - 최소한의 인터페이스만 제공하면 된다.
+```cpp
+kv* find_binary_lessthan(kv* start, kv* end, char const* key)
+{
+    kv* stop = end;
+    while (start < stop)
+    {
+        auto mid = start + (stop - start) / 2;
+        if (*mid < key)
+        {
+            start = mid + 1;
+        }
+        else
+        {
+            stop = mid;
+        }
+    }
+    return (Start == end || key < *start) ? end : start;
+}
+```
+- `std::lower_bound()`를 사용한 이진 검색과 거의 비슷한 성능을 갖는다.
+
+### 9.4.7 strcmp()를 사용해 직접 코딩한 이진 검색
+```cpp
+kv* find_binary_3(kv* start, kv* end, char const* key)
+{
+    auto stop = end;
+    while (start < stop)
+    {
+        auto mid = start + (stop - start) / 2;
+        auto rc = strcmp(mid->key, key);
+        if (rc > 0)
+        {
+            stop = mid;
+        }
+        else if (rc < 0)
+        {
+            start = mid + 1;
+        }
+        else
+        {
+            return mid;
+        }
+    }
+    return mid;
+}
+```
+- `operator<()`를 `strcmp()`관점에서 정의하여 최적화 할 수 있다.
+- 표준 라이브러리에서 사용하는 이진 검색보다 **26%** 빠르다.
