@@ -76,7 +76,7 @@ void HotFunction(std::string const& key)
 #### 최적화할 코드 점검
 - 기본 해결책에서 테이블은 `std::map`이다.
 - 기본 해결책에서 키는 `std::string`의 인스턴스이다.
-- `std::map`의 템플릿 정의는 로직이 일부 있지만 [키를 비교하는 함수를 지정할 수 있는 매개변수](https://en.cppreference.com/w/cpp/container/map)를 제공한다.(3번째 인자)
+- `std::map`의 템플릿은 3번째 인자로 [키를 비교하는 함수를 지정할 수 있는 매개변수](https://en.cppreference.com/w/cpp/container/map)를 제공한다.
 - 많이 실행되는 함수는 `operator[]`를 사용하지 않고 `std::map::find()`함수를 호출한다.
 - `std::map`은 **균형 이진 트리**로 구현되어 있으므로 각 노드를 생성해야 하는 **연결 리스트 기반 자료구조**이다.
   - 삽입 알고리즘이 있어야 하고 삽입시 비용이 많이 든다.
@@ -91,3 +91,96 @@ void HotFunction(std::string const& key)
   - 최적화할 코드에서 항목은 테이블을 생성하는 과정에서만 삽입되고 테이블이 존재하는 동안에는 삭제되지 않는다.
 - 키 자료구조에 필요한 기능은 **문자를 포함**하는 기능과 **두 키를 비교**하는 기능이다.
   - `std::string`은 두 가지 기능 외에 불필요한 더 많은 기능을 제공한다.
+
+## 9.3 std::map을 사용한 검색 최적화
+- 테이블의 자료구조만 남겨두고 **키를 나타내는 자료구조**와 **키를 비교하는 알고리즘**을 변경해 성능을 향상 시킬 수 있다.
+
+### 9.3.1 std::map에 고정된 크기를 갖는 문자열 키를 사용하세요
+- 테이블을 만드는 비용의 대부분은 **할당 비용**이 차지한다.
+```cpp
+unsigned val = table["zule"];
+```
+- 테이블이 `std::string` 키를 사용하는데 위처럼 C 스타일 문자열로 검색한다면 `char*` 문자열 리터럴을 `std::string`으로 변환해야 한다.
+- 키의 **최대 길이가 너무 길지 않다면** 가장 긴 키를 저장할 수 있는 **char 배열이 포함된 클래스 타입**을 키로 사용하는 방법이 있다.
+
+```cpp
+std::map<char[10], unsigned> table;
+```
+- `C++` 배열에는 내장된 비교 연산자가 없기 때문에 배열을 직접 사용할수는 없다.
+- 고정된 크기를 갖는 문자 배열 템플릿 클래스를 정의하여 사용한다.
+
+#### 고정된 크기를 갖는 문자 배열 템플릿 클래스
+```cpp
+template<unsigned N = 10, typenmame T = char> struct charbuf{
+  charbuf();
+  charbuf(charbuf const& cb);
+  charbuf(T const* p);
+  charbuf& operator=(charbuf const& rhs);
+  charbuf& operator=(T const* rhs);
+
+  bool operator==(charbuf constt& that) const;
+  bool operator<(charbuf const& that) const;
+
+private:
+  T data_[N];
+}
+```
+- 문자열의 크기가 내부 버퍼의 고정된 크기보다 작고 문자열 뒤에 0인 바이트가 있는 경우에만 처리가 가능하다.
+  - `std::string`처럼 안전하다는 보장은 없다.
+- `std::string`을 키로 사용한 방법보다 **2배** 정도 속도가 향상되었다.
+
+### 9.3.2 std::map에 C 스타일 문자열 키를 사용하세요
+- C 스타일의 `NULL`로 끝나는 문자열을 `std::map`의 키 타입으로 사용하는 프로그램은 `char*`를 직접 사용하기 때문에 `std::string`의 인스턴스 생성/파괴 비용을 피할 수 있다.
+- `char*`를 키타입으로 사용할경우 문자열 비교에서 포인터가 가리키는 문자열이 아닌 포인터 자체(주소값)를 비교한다.
+  - **사용자 정의 비교 알고리즘**을 구현해야 한다.
+
+#### 사용자 정의 비교 알고리즘
+```cpp
+bool less_free(char const* p1, char const* p2)
+{
+  return strcmp(p1, p2) < 0;
+}
+
+std::map<char const*, unsigned, bool(*)(char const*, char const*)> table(less_free);
+```
+
+#### 함수 객체를 만드는 방법
+- 비교 함수를 캡슐화하는 **함수 객체**를 만드는 방법도 존재한다.
+```cpp
+struct less_for_c_strings
+{
+  bool operator()(char const* p1, char const* p2)
+  {
+    return strcmp(p1, p2) < 0;
+  }
+};
+
+std::map<char const*, unsigned, less_for_c_strings> table;
+```
+- `std::string`을 사용한 코드보다 약 **3배** 빠르고 `char*`와 함수로 구현한 코드보다 거의 **2배** 빠르다.
+
+#### C++11 버전
+- `char*` 키, 비교 함수를 **람다**로 사용하였다.
+```cpp
+auto comp = [](char const* p1, char const* p2)
+{
+  return strcmp(p1, p2) < 0;
+};
+
+std::map<char const*, unsigned, decltype(comp)>table(comp);
+```
+- 람다 타입에는 이름이 없으며 각 람다 타입은 고유하다.
+- 람다의 타입을 알기 위해 `decltype` 키워드를 사용하였다.
+
+### 9.3.3 키가 값에 있을 때 맵의 사촌인 std::set을 사용하기
+- `std::map`은 내부적으로 **키와 값**을 결합한 구조체를 선언한다.
+```cpp
+template <typename KeyType, typename ValueType> struct value_type {
+  KeyType const first;
+  ValueType second;
+  // 생성자와 대입 연산자 ...
+}
+```
+- `std::set`은 기본적으로 `std::less`로 **두 요소 전체를 비교**하는 비교 함수를 사용한다.
+- `std::set`과 자체적인 키를 포함하는 사용자 정의 구조체를 사용하려면 ?
+  - 사용자 정의 구조체에 대해 `std::less`나 `operator<`를 특수화하거나 디폴트가 아닌 비교 객체를 제공해야 한다.
