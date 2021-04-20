@@ -20,3 +20,5 @@
 ### [7. 문장 최적화](/Chapter/Chapter7.md)
 
 ### [8. 라이브러리 최적화](/Chapter/Chapter8.md)
+
+### [9. 검색 및 정렬 최적화](/Chapter/Chapter9.md)
