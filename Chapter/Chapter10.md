@@ -162,3 +162,63 @@ for (auto it = random_vector.begin(); it != random_vector.end(); ++it)
   }
 }
 ```
+
+## 10.3 std::deque
+- 시퀀스 컨테이너
+- 삽입 시간 : 뒤에서 삽입할 경우 `O(1)`, 그외 경우 `O(n)`
+- 색인 시간 : 위치로 색인할 경우 `O(1)`
+- 정렬 시간 : `O(nlogn)`
+- 검색 시간 : 정렬되어 있다면 `O(logn)`, 그외 경우 `O(n)`
+- 내부 배열을 재할당하면 반복자와 참조가 무효화 된다.
+- 반복자는 양방향으로 항목을 방문한다.
+- `FIFO` 큐를 생성하는 특수화된 컨테이너이다.
+- 여러 배열을 저장하는 배열로 구현한다.
+  - 덱에 저장된 항목을 얻으려면 간접 참조를 두 번해야 한다.
+  - 캐시 지역성이 감소하고 메모리 관리자를 더 자주 호출하게 된다.
+
+### 10.3.1 std::deque에서 삽입/삭제하기
+- 벡터와 동일한 삽입 인터페이스에 추가로 앞에 맨 앞에 요소를 삽입하는 멤버 함수 `push_front()`를 제공한다.
+```cpp
+std::deque<int> test_container;
+std::vector<int> random_vector;
+
+// 하나의 덱을 다른 덱으로 대입하는 코드
+test_container = random_vector;
+
+// 반복자를 사용해 덱에 삽입하는 코드
+test_container.insert(test_container.end(), random_vector.begin(), random_vector.end());
+
+// push_back을 사용해 벡터에서 덱으로 항목을 복사하는 세 가지 코드
+// 반복자를 사용하는 코드
+for (auto it = random_vector.begin(); it != random_vector.end(); ++it)
+{
+  test_container.push_back(*it);
+}
+
+// 멤버 함수 std::vector::at()을 사용한 코드
+for (unsigned i = 0; i < random_vector.size(); ++i)
+{
+  test_container.push_back(random_vector.at(i)); 
+}
+
+// 첨자를 사용하는 코드
+for (unsigned i = 0; i < random_vector.size(); ++i)
+{
+  test_container.push_back(random_vector[i]); 
+}
+```
+#### 항목의 수가 같을 경우
+- 벡터가 덱보다 대입하는 속도가 13배 빠르다.
+- 벡터가 덱보다 삭제하는 속도가 22배 빠르다.
+- 반복자 버전에서 삽입하는 속도는 벡터가 덱보다 9배, `push_back()`의 속도는 2배, 뒤쪽에서 삽입하는 속도는 3배 빠르다.
+
+### 10.3.2 std::deque를 사용하는 반복문
+- **반복자 기반 버전**은 덱이 벡터보다 빠르고 **첨자 기반 버전**은 덱이 벡터보다 느리다.
+- 덱에서 속도가 가장 빠른 탐색 방법은 벡터에서 속도가 가장 빠른 탐색 방법보다 비용이 2배 많이 든다.
+
+### 10.3.3 std::deque 정렬하기
+- `std::sort()`의 경우 덱이 벡터보다 약 33% 느리다.
+- `std::stable_sort()`의 경우 덱이 벡터보다 약 10% 느리다.
+
+### 10.3.4 std::deque에서 검색하기
+- 항목이 정렬되어 있는 덱에서 키를 검색하는데 비용은 덱이 벡터보다 20% 더 많이 든다.
