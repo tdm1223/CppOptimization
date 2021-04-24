@@ -22,3 +22,5 @@
 ### [8. 라이브러리 최적화](/Chapter/Chapter8.md)
 
 ### [9. 검색 및 정렬 최적화](/Chapter/Chapter9.md)
+
+### [10. 자료구조 최적화](/Chapter/Chapter10.md)
