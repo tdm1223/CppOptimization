@@ -3,6 +3,7 @@
 #### 텍스트 파일을 읽어 문자열로 저장하는 함수
 - 주로 `XML`이나 `JSON` 블록으로 된 **문자열을 파싱**하기 위한 목적으로 사용된다.
 - 이 장에서 최적화를 위해 사용할 예제이다.
+- 앞으로 사용할 모든 코드는 [이곳](/Code/fileReader.cpp)에 있다.
 ```cpp
 std::string file_reader(char const* fname)
 {
@@ -131,7 +132,7 @@ std::streamoff stream_size(std::istream& f)
 ### 11.1.4 더 큰 입력 버퍼 사용하기
 - `C++` 스트림은 `std::streambuf`에서 파생된 클래스를 포함하는데 운영체제에서 데이터를 더 큰 덩어리로 읽어 파일 읽기 성능을 향상한다.
 - 데이터는 스트림 버퍼의 내부 버퍼에 저장되며 앞에서 설명했던 반복자 기반 입력 방법으로 바이트 단위로 추출된다.
-- 입력 버퍼의 크기가 증가하면 성능이 약 5% 정도 향상된다. 크기가 `8KB`를 넘어가면 별 다른 영향을 미치지 않는다.
+- 입력 버퍼의 크기가 증가하면 성능이 약 5% 정도 향상된다. 크기가 8KB를 넘어가면 별 다른 영향을 미치지 않는다.
 
 ### 11.1.5 한 번에 한 줄씩 읽기
 - 행으로 나눠진 텍스트 파일이라면 행을 읽는 함수를 사용해 호출 횟수를 줄이는 방법을 생각해볼 수 있다.
@@ -211,7 +212,7 @@ bool stream_read_string(std::istream& f, std::string& result)
 - `stream_read_sgetn()`보다 약 25% 빠르며 `file_reader()`보다 5배 빠른 성능을 보인다.
 
 #### 문자열의 저장 곤간이 연속적이지 않더라도 사용할 수 있는 코드
-- `stream_read_sgetn()`과 `stream_read_string()`의 문제는 포인터 &s[0]가 연속된 저장 공간을 가리킨다고 가정한다.
+- `stream_read_sgetn()`과 `stream_read_string()`의 문제는 포인터 `&s[0]`가 연속된 저장 공간을 가리킨다고 가정한다.
 - `C++11` 이전 표준에서는 문자열의 문자를 연속적으로 **저장하지 않아도 되지만** 모든 표준 라이브러리는 이 방법으로 구현되었다.
 - 동적으로 할당된 문자 배열에 데이터를 읽은 뒤 `assign()`을 사용해 문자열로 복사한다.
 
@@ -231,3 +232,22 @@ bool stream_read_array(std::istream& f, std::string& result)
 }
 ```
 - `stream_read_string()`보다는 약간 느린 성능을 보인다.
+
+## 11.2 파일 쓰기
+- 기본 파일 쓰기 함수
+```cpp
+void stream_write_line(std::ostream& f, std::string const& line)
+{
+    f << line << std::endl;
+}
+```
+- `stream_write_line()`은 각 행을 `std::endl`로 밀어낸다.
+- `std::endl`은 출력 버퍼를 비워낸다.
+  - 없으면 `std::ofstream`이 운영체제에 **큰 데이터 블록을 몇개만 밀어내면 되기 때문**에 쓰기 속도가 빨라진다.
+```cpp
+void stream_srite_line_noflush(std::ostream& f, std::string const& line)
+{
+    f < <line << "\n";
+}
+```
+- `stream_write_line()`보다 약 5배가 빠르다.
