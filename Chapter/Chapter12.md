@@ -171,3 +171,301 @@ assert(shared_result_x == 1);
   - 이러한 방법으로 작동하는 코드는 뮤텍스를 획득하기 위해 기다릴 필요가 없으므로 **락프리 프로그래밍**이라고 한다.
 - 락프리 프로그래밍은 동시 스레드 수를 매우 많이 늘릴 수 있지만 만병통치약은 아니다.
   - 스레드가 수행하는 명령이 한개 뿐이더라도 원자적연산으로 직렬화 된다.
+
+## 12.2 C++ 동시성 기능
+### 12.2.1 스레드
+- 헤더 파일 `<thread>`는 템플릿 클래스인 `std::thread`를 제공한다.
+  - 프로그램은 이 클래스를 통해 스레드 객체를 만들 수 있다.
+- `std::thread`의 생성자는 인수로 호출 가능한 객체를 취하고 새로운 소프트웨어 스레드의 콘텍스트에서 실행한다.
+- `C++`은 가변 템플릿 인수 포워딩을 사용해 임의의 인수 목록을 갖는 함수를 호출한다.
+- `std::thread`는 운영체제 스레드를 관리하는 `RAII` 클래스이다.
+  - `std::thread`는 운영체제의 네이티브 스레드 핸들을 반환하는 멤버함수 `get`을 제공한다.
+
+#### std::thread 예제
+
+```cpp
+void f1(int n)
+{
+    std::cout << "thread " << n << std::endl;
+}
+
+void thread_example()
+{
+  std::thread t1;                  // 스레드가 아닌 스레드 변수
+  t1 = std::thread(f1, 1);         // 스레드 변수에 스레드 대입
+  t1.join();                       // 스레드가 완료될 때까지 기다림 
+  std::thread t2(f1, 2);
+  std::thread t3(std::move(t2));
+  std::thread t4([]() {return; }); // 람다 사용 가능
+  t4.detach();
+  t3.join();
+}
+```
+
+- **이동 생성자**가 호출되면 `t3`은 `t2`에서 시작한 스레드를 실행하고 `t2`는 빈스레드가 된다.
+- `t4`는 호출 가능한 객체에 람다를 사용할 수도 있다는 것을 보여준다.
+- `join()`을 사용할 경우 현재 스레드는 조인된 스레드가 완료될 때까지 기다린다.
+- 운영체제 스레드는 `detach` 처럼 `std::thread` 객체와 분리할 수도 있다.
+- `std::thread`를 파괴하기 전에 `join()`과 `detach()`를 모두 호출하지 않으면 소멸자가 terminate()를 호출해 프로그램 전체가 중단된다.
+
+### 12.2.2 프로미스와 퓨처
+- `std::promise`와 `std::future`는 하나의 스레드에서 다른 스레드로 메시지를 보내고 받는다.
+- 프로미스와 퓨처는 값을 **비동기**로 생성하고 예외를 던질 수 있다.
+- `std::promise` 템플릿의 인스턴스는 스레드가 지정된 타입의 값이나 예외를 저장하는 공유 상태를 설정할 수 있게 해준다.
+  - 값을 보내는 스레드는 값을 받는 스레드가 공유 상태를 읽을때까지 기다리지 않고 즉시 실행을 재개한다.
+- 프로미스의 공유 상태는 값이나 예외가 설정될 때까지 준비 상태가 되지 않는다.
+- 스레드는 퓨처를 통해 프로미스의 **고유 상태**에 **저장된 값이나 예외**를 받을 수 있다.
+  - 스레드는 퓨처에서 결과값을 받을 때까지 실행을 대기할 수 있으므로 퓨처는 **동기화 장치의 역할**을 한다.
+- 값을 받는 스레드는 값이나 예외를 설정하는 함수 호출로 해당 프로미스가 준비 상태가 될 때까지 퓨처의 멤버 함수 `get()`의 호출을 보류한다.
+- 퓨처는 프로미스로부터 값을 생성하거나 대입 받을 때까지 유효하지 않다.
+- 프로미스와 퓨처는 복사할 수 없다.
+- 프로미스는 **값을 보내는 스레드**에서 만들어지며 퓨처는 **값을 받는 스레드**에서 만들어진다.
+- 퓨처가 준비되면 계산이 완료되었다는 시그널을 보낸다.
+  - 프로그램은 퓨처에서 대기할 수 있으므로 스레드 종료 시점에서 대기할 필요는 없다.
+
+#### std::promise, std::future 예제
+```cpp
+void promise_future_example()
+{
+    auto meaning = [](std::promise<int>& prom)
+    {
+        prom.set_value(42);
+    };
+
+    std::promise<int> prom;
+    std::thread(meaning, std::ref(prom)).detach();
+
+    std::future<int> result = prom.get_future();
+    std::cout << "the meaning of life: " << result.get() << "\n";
+}
+```
+
+- 프로미스 prom은 스레드가 호출되기 전에 생성된다.
+- 익명 스레드를 생성한다.
+  - 스레드 인수는 호출 가능한 객체인 람다 **meaning**과 **meaning의 인수인 프로미스 prom**이다.
+- `detach`를 호출하면 실행 중인 스레드가 파괴된 익명 스레드에서 분리된다.
+- 운영체제는 `meaning`을 실행할 준비를 하고 프로그램은 퓨처 `result`를 만든다.
+- 프로그램은 스레드가 `prom`의 공유 상태를 설정하기를 기다리며 `result.get()`에서 대기한다.
+- 스레드는 `prom.set_value(42)`를 호출해 **공유 상태를 준비 상태**로 만들고 프로그램을 **해제**한다.
+- 프로그램은 `the meaning of life: 42`를 출력하고 종료된다.
+
+### 12.2.3 비동기 태스크
+- 태스크 템플릿 클래스는 호출 가능한 객체를 `try` 블록으로 감싸고 **프로미스에 반환된 값이나 던져진 예외를 저장**한다.
+- 태스크는 스레드에서 호출 가능한 객체를 비동기적으로 호출할 수 있게 한다.
+- 호출 가능한 객체를 태스크로 패키징하는 함수 `async()`를 제공하며 재사용 가능한 스레드에서 이 함수를 호출한다.
+
+#### packaged_task 예제
+- `std::packaged_task`는 모든 호출 가능한 객체를 감싸서 비동기적으로 호출할 수 있도록 한다.
+- `std::packaged_task`는 호출 가능한 객체며 `std::thread`의 인수로 사용할 수 있다.
+
+```cpp
+void promise_future_example_2()
+{
+    auto meaning = std::packaged_task<int(int)>([](int n) {return n; });
+    auto result = meaning.get_future();
+    auto t = std::thread(std::move(meaning), 42);
+
+    std::cout << "the meaning of life: " << result.get() << "\n";
+    t.join();
+}
+```
+
+- `std::packaged_task` 타입인 `meaning`은 호출 가능한 객체와 `std::promise`를 모두 포함하고 있다.
+- 스레드의 콘텍스트에서 호출되는 프로미스의 소멸자를 가져오는 문제를 해결한다.
+
+#### async 예제
+- `<async>` 라이브러리는 **태스크를 기반**으로 하는 기능을 제공한다.
+- `std::async()`는 인수로 받은 호출 가능한 객체를 실행하고, 호출 가능한 객체는 새 스레드의 콘텍스트에서 실행될 수 있다.
+
+```cpp
+void promise_future_example_3()
+{
+  auto meaning = [](int n) {return n;};
+  auto result = std::async(std::move(meaning), 42);
+  std::cout << "the meaning of life: " << result.get() << "\n";
+}
+```
+- `meaning`으로 정의된 람다와 람다의 인수는 `std::async()`로 전달된다.
+- `async()`의 템플릿 매개변수를 결정하기 위해 **타입 추론**을 사용한다.
+- `std::async()`는 `int` 타입의 결과나 예외를 가져갈 수 있는 퓨처를 반환하며 이 값은 `result`로 이동된다.
+- `result.get()`을 호출하면 `std::async()`에 의해 호출된 스레드가 `int` 타입의 인수를 반환함으로써 프로미스에 값을 채울때까지 대기한다.
+- 스레드 종료는 `std::async()`안에서 관리하는데 이는 스레드 풀에서 스레드를 유지할 수 있다.
+
+### 12.2.4 뮤텍스
+#### std::mutex
+- 간단하고 효율적인 뮤텍스
+- 윈도우에서 우선 `busy waiting`을 시도하고 뮤텍스를 빨리 획득할 수 없을 경우 운영체제 호출로 돌아간다.
+
+#### std::recursive_mutex
+- 중첩된 함수 호출처럼 뮤텍스를 이미 가진 스레드가 다시 획득할 수 있게 해주는 뮤텍스이다.
+- 이 클래스는 뮤텍스를 획득한 횟수를 세야 하므로 효율성이 떨어질 수 있다.
+
+#### std::recursive_timed_mutex
+- `std::mutex`와 `std::recursive_mutex`를 합쳐놓은 뮤텍스이다.
+- 다양한 기능을 지원하지만 비용이 크다.
+
+#### std::shared_time_mutex
+- 뮤텍스를 획득하기 위해 시도하는 시간을 지정하거나 지정하지 않을 수 있는 공유 뮤텍스이다.
+
+#### std::shared_mutex
+- 간단한 공유 뮤텍스
+- `C++17`에 추가되었다.
+
+### 12.2.5 락
+- 락이라는 단어는 구조화된 방법으로 뮤텍스를 획득하고 해제하는 `RAI` 클래스를 말한다.
+- 뮤텍스와 락을 혼동할 수 있는데 아래와 같이 구별하면 된다.
+  - 뮤텍스를 획득한다는 것은 뮤텍스에 락을 거는 것이다.
+  - 뮤텍스를 해제한다는 것은 뮤텍스에 걸린 락을 푸는 것이다.
+- `C++`의 뮤텍스 멤버 함수인 `lock()`을 통해 **뮤텍스를 획득**할 수 있다.
+
+#### std::lock_duard
+- 간단한 `RAII` 락이다.
+- 프로그램은 클래스를 생성하는 과정에서 락을 획득하기 위해 기다리며 `lock_guard`가 파괴될 때 락을 푼다.
+- 이전 표준에서 `scope_guard`라는 이름으로 구현되었다.
+
+#### std::unique_lock
+- `RAII` 락, 지연 락, 시간을 지정하는 락, 뮤텍스의 소유권 전달, 조건 변수의 사용을 제공하는 **범용 뮤텍스 소유권 클래스**이다.
+- `C++14`에서는 `<shared_mutex>` 헤더 파일에 공유 뮤텍스가 추가되었다.
+
+#### std::shared_lock
+- 공유(읽기/쓰기) 뮤텍스를 위한 뮤텍스 소유권 클래스이다.
+- `std::unique_lock`의 모든 기능과 공유 뮤텍스의 제어 기능을 제공한다.
+
+### 12.2.6 조건 변수
+- 조건 변수는 프로그램이 모니터 개념을 구현할 수 있게 해주며 자바에서는 동기화 클래스라는 개념으로 사용하고 있다.
+  - 모니터는 여러 스레드 간에 자료구조를 공유한다.
+- 스레드가 성공적으로 모니터에 들어가면 **공유 자료구조**를 갱신할 수 있는 **뮤텍스**를 소유하게 된다.
+- 스레드는 공유 자료구조를 갱신한 후 독점 접근을 포기하며 모니터를 떠날 수 있다.
+- 특정 변화가 있을 때까지 독점 접근을 일시적으로 포기하며 조건 변수에 대기할 수도 있다.
+
+#### std::condition_variable
+- 가장 효율적인 조건 변수
+- 뮤텍스에 락을 걸려면 `std::unique_lock`을 사용해야 한다.
+
+#### std::condition_variable_any
+- `BasicLockable` 락을 사용할 수 있는 조건 변수
+- 멤버 함수 `lock()`과 `unlock()`을 제공하는 모든 락에서 사용할 수 있다.
+- `std::condition_variable`보다 효율적이지 않을 수 있다.
+
+#### condition_variable 예제
+```cpp
+void cv_example()
+{
+  std::mutex m;
+  std::condition_variable cv;
+  bool terminate = false;
+  int shared_data = 0;
+  int counter = 0;
+
+  auto consumer = [&]() {
+    std::unique_lock<std::mutex> lk(m);
+    do {
+      while (!(terminate || shared_data != 0))
+      {
+         cv.wait(lk);
+      }
+      if (terminate)
+      {
+        break;
+      }
+      std::cout << "consuming " << shared_data << std::endl;
+      shared_data = 0;
+      cv.notify_one();
+    } while (true);
+  };
+
+  auto producer = [&]() {
+    std::unique_lock<std::mutex> lk(m);
+    for (counter = 1; true; ++counter)
+    {
+      cv.wait(lk, [&]() {return terminate || shared_data == 0; });
+      if (terminate)
+      {
+        break;
+      }
+      shared_data = counter;
+      std::cout << "producing " << shared_data << std::endl;
+      cv.notify_one();
+    }
+  };
+
+  auto p = std::thread(producer);
+  auto c = std::thread(consumer);
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  {
+    std::lock_guard<std::mutex> l(m);
+    terminate = true;
+  }
+  std::cout << "total items produced " << counter << std::endl;
+  cv.notify_all();
+  p.join();
+  c.join();
+  exit(0);
+}
+```
+- 생산자는 정수 타입을 갖는 `shared_data`를 0이 아닌 값으로 설정해 생산한다.
+- 소비자는 `shared_data`를 0으로 다시 설정해 소비한다.
+- 메인 스레드가 깨어나면 뮤텍스`m`에 락을 걸어 모니터에 들어가 `terminate` 플래그를 설정한다.
+  - 생산자 소비자 스레드 모두 종료된다.
+- 메인 프로그램은 조건 변수에게 종료 상태가 변경되었다고 알리고 두 스레드를 조인한 뒤 종료한다.
+- `consumer`는 뮤텍스`m`에 락을 걸어 모니터에 들어간다.
+  - 소비자는 조건 변수 `cv`에서 대기하는 반복문이다.
+  - 소비자는 `cv`에서 대기하지만 `consumer`는 모니터에 없다.
+  - 뮤텍스`m`은 다시 사용가능하고 소비할 무언가가 생기면 `cv`에게 알린다.
+  - 소비자가 깨어나고 뮤텍스에 다시 락을 건 뒤 `cv.wait()`로 반환해 개념적으로 모니터에 다시 들어가게 된다.
+
+### 12.2.7 공유 변수에 대한 원자적 연산
+- 표준 라이브러리의 헤더 파일 `<atomic>`은 멀티스레드 동기화 장치를 구축하기 위한 저수준 도구들을 제공한다.
+- **메모리 펜스**와 **원자적 적재 및 저장**이다.
+
+#### load()
+- `std::atomic<T>`는 멤버 함수 `T load(memory_order)`를 제공한다.
+- 이 함수는 원자적으로 T 객체를 `std::atomic<T>`밖으로 복사한다.
+
+#### store()
+- `std::atomic<T>`는 멤버 함수 `void store(T, memory_order)`를 제공한다.
+- 이 함수는 원자적으로 T 객체를 `std::atomic<T>`안으로 복사한다.
+
+#### is_lock_free()
+- 이 타입에 정의된 모든 연산이 읽기/수정/쓰기하는 하나의 기계어처럼 상호 배제를 사용하지 않고 구현된 경우 `true`를 반환한다.
+
+#### 메모리 펜스
+- `std::atomic`의 멤버 함수 대부분은 연산 주위에 세울 메모리 펜스를 선택하는 `memory_order`라는 인수를 선택적으로 취한다.
+  - 인수 `memory_order`에 값을 지정하지 않았다면 기본 값으로 `memory_order_acq_rel`이 지정된다.
+  - 항상 안전한 전체 펜스를 제공하지만 비용이 비쌀 수 있다.
+- 메모리 펜스는 **메인 메모리**를 여러 **하드웨어 스레드의 캐시와 동기화**한다.
+- 하나의 스레드를 다른 스레드와 동기화하기 위해 두 스레드 모두 메모리 펜스를 실행한다.
+- C++에서 사용할 수 있는 메모리 펜스는 아래와 같다.
+
+1. memory_order_acquire
+   - 다른 스레드가 수행한 **모든 작업을 획득**한다는 의미로 생각할 수 있다.
+   - 다음 적재 연산을 현재 적재 연산이나 이전 적재 연산 앞으로 옮기지 못하게 한다.
+   - 현재 프로세서와 메인 메모리 사이에서 진행 중인 저장 연산을 완료하기 위해 기다린다.
+   - 기본값으로 지정되는 전체 펜스보다 비용이 저렴할 수 있다.
+
+2. memory_order_release
+   - 이 시점에 스레드에서 수행한 **모든 작업을 해제**한다는 의미로 생각할 수 있다.
+   - 스레드에서 수행한 이전 적재 연산이나 저장 연산을 현재 저장 연산 앞으로 옮기지 못하게 한다.
+   - 이 작동은 형재 스레드에서 진행 중인 저장 연산을 완료하기 위해 기다린다.
+
+3. memory_order_acq_rel
+   - 앞에 나온 두 가지 펜스를 결합해 **전체 펜스**를 만든다.
+
+4. memory_order_consume
+   - 잠재적으로 더 약하고 빠른 `memory_order_acquire`형태이다.
+   - 데이터에 의존하는 다른 연산을 수행하기 전에 현재 적재 연산이 수행되기만 하면 된다.
+
+5. memory_order_reloaxed
+   - 모든 연산을 재배열 할 수 있다.
+
+### 12.2.8 미래의 C++ 동시성 기능
+#### 협력형 멀티 스레딩
+- 둘 이상의 소프트웨어 스레드가 명시적 문장으로 두 스레드 사이에서 실행을 전달하므로 실제로는 한 번에 하나의 스레드만 실행된다.
+- **코루틴**은 협력형 멀티스레딩의 한 예이다.
+- 각 스레드는 활발하게 실행 중이지 않을 경우 콘텍스트를 유지할 수 있다.
+- 한 번에 하나의 스레드만 실행하므로 변수는 공유되지 않는다. 따라서 상호배제는 필요하지 않다.
+
+#### SIMD 명령
+- `Single Instruction Multiple Data`의 약자로 **하나의 명령어로 여러 개의 값을 동시에 계산**하는 방법이다.
+- `SIMD`를 지원하는 프로세서에서 특정 명령은 레지스터의 벡터에서 작동한다.
+- 프로세서는 벡터의 각 레지스터에서 동시에 같은 작동을 수행하므로 스칼라 연산보다 오버헤드를 줄인다.
