@@ -700,3 +700,43 @@ std::async(std::launch::async, []() { return;});
 - 생산자는 모든 시스템 메모리 자원을 소비해 프로그램 전체가 갑자기 종료되도록 야기할 수 있다.
 - 프로그램이 예외에서 복구되도록 설계되었다면 프로그램을 다시 시작하기 전에 대기 중인 모든 데이터를 처리해야 하므로 복구 시간이 길어진다.
 - 해결책은 **큐의 크기를 제한**하고 **큐가 가득 차면 생산자를 막는 것**이다.
+
+## 12.5 동시성 라이브러리
+- 동시성 라이브러리에는 잘 알려진 것이 많이 있다.
+- 동시성의 메시지 전달 방법을 구현하려는 개발자는 다음 도구 중 하나를 사용하는게 좋다.
+
+#### Boost.Thread와 Boost.Coroutine
+- [Boost.Thread](http://bit.ly/b-thread)
+- [Boost.Coroutine](http://bit.ly/b-coroutine)
+
+#### POSIX 스레드
+- [POSIX 스레드](http://sourceware.org/pthreads-win32/)
+- 스레드와 동기화 장치들로 이뤄진 크로스 플랫폼 라이브러리이다.
+- 동시성에서 가장 오래 되었고 널리 사용한다.
+- 전통적인 기능을 제공하는 C스타일 함수 라이브러리이다.
+
+#### 스레드 빌딩 블록 (Threading Building Block)
+- [TBB](http://www.threadingbuildingblocks.org/)
+- 템플릿을 사용하여 문서화가 잘 되어 있는 `C++` 스레드 `API`
+- 반복문, 태스크 및 스레드 풀, 동시 컨테이너, 데이터 흐름 메시지 전달 클래스, 동기화 장치를 병렬로 제공한다.
+
+#### 0mq(ZeroMQ)
+- [0mq](http://zeromq.org/)
+- 메시지 전달 프로그램을 연결하기 위한 통신 라이브러리
+- 다양한 통신 패러다임을 지원하고 효율성과 절약성에 매진한다.
+- 0mq를 재구상한 라이브러리인 [nanomsg](http://www.nanomsg.org)가 있다.
+
+#### 메시지 패싱 인터페이스
+- [MPI](http://computing.llnl.gov/tutorials/mpi/)
+- 분산 컴퓨터 네트워크에서 메시지를 전달하기 위한 `API` 규격이다.
+- C 스타일 함수 라이브러리로 구현되어 있다.
+
+#### OpenMP
+- [OpenMP](http://openmp.org)
+- `C/C++`과 포트란으로 구현된 멀티 플랫폼 공유 메모리 병렬 프로그래밍을 위한 `API`
+- 수치 계산에 중점을 둔 정교한 동시성 모델을 제공한다.
+- 리눅스에서는 `GCC`와 `Clang`를 통해, 윈도우에서는 비주얼`C++`을 통해 사용할 수 있다.
+ 
+#### C++ AMP
+- [AMP](http://bit.ly/cpp-accel)
+- GPU 장치에서 병렬 데이터 계산을 수행하도록 설계된 C++ 라이브러리의 개발 규격
