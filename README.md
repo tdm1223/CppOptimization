@@ -26,3 +26,5 @@
 ### [10. 자료구조 최적화](/Chapter/Chapter10.md)
 
 ### [11. 입출력 최적화](/Chapter/Chapter11.md)
+
+### [12. 동시성 최적화](/Chapter/Chapter12.md)
