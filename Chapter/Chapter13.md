@@ -226,3 +226,237 @@ b->Blah::Blah();
 - 메모리 관리자를 호출하는 횟수를 줄이면 할당자의 속도와 관계없이 성능을 향상할 수 있다.
 - 최신 메모리 관리자는 성능을 향상하기 위해 캐시 및 자유 블록 풀에 메모리를 소비한다.
   - 제약 조건이 있는 환경에서는 메모리를 추가로 사용할 수 없을 수도 있다.
+
+## 13.3 클래스 한정 메모리 관리자 제공하기
+- `operator new()`는 클래스 수준에서 재정의 할 수 있다.
+- 클래스의 인스턴스를 동적으로 생성하는 코드가 자주 실행된다면 클래스 한정 메모리 관리자로 성능을 향상할 수 있다.
+- 클래스에 `operator new()`를 구현하면 인스턴스를 할당할 메모리를 요청할 떄 전역 범위의 `operator new()`대신 구현한 `operator new()`를 호출한다.
+- 클래스 한정 `operator new()`는 기본 버전에서 사용할 수 없는 부가적인 지식을 활용할 수 있다.
+  - 특정 클래스의 인스턴스를 할당할 메모리를 요청할 때 **요청하는 바이트 수가 모두 같다.**
+- 같은 크기를 요청하는 메모리 관리자는 쉽게 만들 수 있고 효율적으로 실행되는데 그 이유는 아래와 같다.
+  - 고정된 크기의 블록을 갖는 메모리 관리자는 반환된 메모리를 **효율적으로 재사용**할 수 있다.
+  - 똑같은 크기를 요청하기 때문에 **파편화**가 발생하지 않는다.
+  - **메모리 오버헤드**가 낮거나 없는 고정된 크기의 블록을 갖는 메모리 관리자를 구현할 수 있다.
+  - **메모리 소비량의 상한값을 보장**할 수 있다.
+  - 메모리 관리자의 함수가 내부적으로 매우 간단하므로 인라인화 할 수 있다.
+  - 캐시 히트율이 높다.
+
+### 13.3.1 고정된 크기의 블록을 갖는 메모리 관리자
+- 아래 코드는 **고정된 크기의 블록을 갖는 메모리 관리자**를 정의한다.
+```cpp
+template <class Arena> struct fixed_block_memory_manager {
+  template <int N>
+  fixed_block_memory_manager(char(&a)[N]);
+  
+  fixed_block_memory_manager(fixed_block_memory_manager&) = delete;
+  ~fixed_block_memory_manager() = default;
+  void operator=(fixed_block_memory_manager&) = delete;
+
+  void* allocate(size_t);
+  size_t block_size() const;
+  size_t capacity() const;
+  void clear();
+  void deallocate(void*);
+  bool empty() const;
+private:
+  struct free_block{
+    free_block* next;
+  };
+  free_block* free_ptr_;
+  size_t block_size_;
+  Arena arena_;
+};
+```
+- 내부구조는 사용 가능한 메모리 블록의 **단일 연결 리스트**만 존재한다.
+- 이 메모리 관리자는 아레나라고 하는 정적으로 선언된 저장 공간의 조각에서 블록을 할당한다.
+
+#### 생성자
+```cpp
+template <class Arena>
+  template <int N>
+    inline fixed_block_memory_manager<Arena>
+    ::fixed_block_memory_manager(char(&a)[N]) :
+      arena_(a), free_ptr_(nullptr), block_size_(0) { }
+```
+- 생성자는 인자로 **C 스타일의 char 배열**을 받는다.
+- 이 배열은 메모리 블록을 할당할 아레나를 형성한다.
+- 생성자는 템플릿 함수로 배열의 크기를 템플릿 매개변수로 캡처할 수 있다.
+
+#### allocate 함수
+```cpp
+template <class Arena>
+  inline void* fixed_block_memory_manager<Arena>::allocate(size_t size)
+  {
+    if(empty()){
+      free_ptr = reinterpret_cast<free_block*>(arena_.allocate(size));
+      block_size_ = size;
+      if(empty())
+      {
+        throw std::bad_alloc();
+      }
+    }
+    if (size != block_size_)
+    {
+      throw std::bad_alloc();
+    }
+    auto p = free_ptr_;
+    free_ptr_ = free_ptr_->next;
+    return p;
+  }
+```
+- `allocate()`는 **사용 가능한 블록이 있는 경우** 빈칸 목록에서 블록을 꺼낸 뒤 반환한다.
+- 빈칸 목록이 비어있다면 아레나 관리자에서 새 자유 블록의 목록을 얻으려고 시도한다.
+- 더 할당할 메모리가 없다면 `nullptr`를 반환하고 `std::bad_alloc`을 던진다.
+
+#### deallocate 함수
+```cpp
+template <class Arena>
+  inline void fixed_block_memory_manager<Arena>::deallocate(void* p){
+    if (p == nullptr)
+      return;
+    auto fp = reinterpret_cast<free_block*>(p);
+    fp->next = free_ptr_;
+    free_ptr_ = fp;
+  }
+```
+- 블록을 빈칸 목록으로 밀어 넣는다.
+
+#### capacity, clear 함수
+```cpp
+template <class Arena>
+inline size_t fixed_block_memory_manager<Arena>::capacity() const{
+  return arena_.capacity();
+}
+
+template <class Arena>
+inline void fixed_block_memory_manager<Arena>::clear(){
+  free_ptr_ = nullptr;
+  arena_.clear();
+}
+```
+- 나머지 멤버 함수들은 간단하게 작성할 수 있다.
+- `C++11` 문법을 사용해 클래스 정의에서 메모리 관리자의 복사 및 대입을 사용할 수 없도록 설정하였다.
+
+### 13.3.2 블록 아레나
+- `fixed_block_memory_manager`의 복잡성은 처음에 빈칸 목록을 만드는 방법에서 발생한다.
+- 이 복잡성은 별도의 템플릿 클래스로 반영하며 이름은 `fixed_arena_controller`로 하였다.
+```cpp
+struct fixed_arena_controller {
+  template <int N>
+  fixed_arena_controller(char(&a)[N]);
+
+  fixed_arena_controller(fixed_arena_controller&) = delete;
+  ~fixed_arena_controller() = default;
+  void operator=(fixed_arena_controller&) = delete;
+
+  void* allocate(size_t);
+  size_t block_size() const;
+  size_t capacity() const;
+  void clear();
+  bool empty() const;
+
+private:
+  void* arena_;
+  size_t arena_size_;
+  size_t block_size_;
+}
+```
+- 아레나는 어떤 활동이 일어나는 밀폐된 공간을 의미한다.
+- `fixed_arena_controller`는 **고정된 크기의 노드**를 할당할 수 있는 **단일 정적 메모리 블록**을 제공한다.
+
+#### 생성자
+```cpp
+template <int N>
+  inline fixed_arena_controller::fixed_arena_controller(char(&a)[N])
+    : arena_(a), arene_size_(N), block_size_(0) { }
+```
+- 생성자는 아레나 배열을 인자로 받으며 **배열의 크기와 시작 주소를 가리키는 포인터를 저장**한다.
+
+#### allocate 함수
+```cpp
+inline void* fixed_arena_controller::allocate(size_t size){
+  if (!empty())
+    return nullptr;
+
+  block_size_ = std::max(size, sizeof(void*));
+  size_t count = capacity();
+
+  if (count == 0)
+    return nullptr;
+
+  char* p;
+  for (p = (char*)arena_; count > 1; --count, p += size){
+    *reinterpret_cast<char**>(p) = p + size;
+  }
+  *reinterpret_cast<char**>(p) = nullptr;
+  return arena_;
+}
+```
+- `fixed_arena_controller`는 할당된 단일 메모리 블록을 갖는다.
+  - 해당 블록을 모두 사용했다면 `allocate()`를 **다시 호출**하고 오류를 나타내는값(`nullptr`)을 반환한다.
+- 처음 호출할 때 블록의 크기와 블록 단위의 용량을 설정한다.
+- `fixed_arena_controller`는 아레나 배열의 크기를 제어할 수 없다.
+  - 배열 끝부분의 몇 바이트는 한 번도 할당하지 않고 사용하지 않을 수 있다.
+- `fixed_arena_controller`의 할당 및 해제 코드는 간단하다.
+  - 생성자에게 제공된 저장 공간 위에 사용 가능한 노드 목록을 중첩하게 만든다.
+  - 목록의 첫 번째 요소를 가리키는 포인터를 반환한다.
+
+### 13.3.3 클래스 한정 operator new() 추가하기
+- 아래는 클래스 한정 `operator new()`와 `operator delete()`가 있는 매우 간단한 클래스이다.
+```cpp
+class MemMgrTester{
+  int contents_;
+public:
+  MemMgrTester(int c) : contents_(c) {}
+
+  static void* operator new(size_t s){
+    return mgr_.allocate(s);
+  }
+
+  static void operator delete(void* p){
+    mgr_.deallocate(p);
+  }
+  static fixed_block_memory_manager<fixed_arena_controller> mgr_;
+}
+```
+- 고정된 크기의 블록을 갖는 메모리 관리자인 정적 멤버 `mgr_`을 포함하고 있다.
+- `operator new()`와 `operator delete()`는 `mgr_`의 멤버 함수 `allocate()`와 `deallocate()`에 요청 사항을 전달하는 **인라인 함수**다.
+- `mgr_`를 `public`으로 선언했으므로 `mgr_.clear()`를 호출해서 **빈칸 목록을 다시 초기화**할 수 있다.
+- 이렇게 재설정할 수 있는 메모리 관리자를 **풀 메모리 관리자**라고 하며 이를 제어하는 아레나를 메모리 풀이라고 한다.
+  - 풀 메모리 관리자는 자료구조를 생성, 사용, 파괴하는 경우에 유용하다.
+- 메모리 풀 전체를 빠른 속도로 초기화 할 수 있다면 프로그램은 자료구조를 노드마다 해제하지 않아도 된다.
+
+```cpp
+char arena[4004];
+fixed_block_memory_manager<fixed_arena_controller>
+  MemMgrTester::mgr_(arena);
+```
+- `mgr_`는 클래스 정적 멤버로 선언된다.
+  - 프로그램의 어딘가에서는 정의해야 한다.
+- 메모리 아레나와 `mgr_`을 정의하는 코드이다.
+- 생성자는 아레나를 인수로 받는다.
+
+### 13.3.4 고정된 크기의 블록을 갖는 메모리 관리자의 성능
+- 고정된 크기의 블록을 갖는 메모리 관리자는 매우 효율적이다.
+- 할당 및 해제 코드는 고정된 비용을 가지며 코드를 인라인화 할 수 있다.
+- `malloc()`보다 빠른 성능을 보인다.
+
+### 13.3.5 고정된 크기의 블록을 갖는 메모리 관리자의 변형
+- 고정된 크기의 블록을 갖는 메모리 관리자의 기본 구조는 매우 간단하다.
+- 이 구조를 변형해 최적화 작업 중인 프로그램에 더 적합한 게 있는지 확인해 볼 수 있다.
+- 빈칸 목록이 비어있을 때 고정된 크기를 갖는 아레나로 시작하는 대신 `malloc()`을 사용해 메모리를 할당할 수 있다.
+  - 해제된 메모리 블록은 빠르게 재사용할 수 있도록 빈칸 목록에 캐시된다.
+- 아레나가 고정된 크기를 갖는 대신 `malloc()`이나 `::new`를 호출해 만들 수 있다.
+- 클래스의 인스턴스를 잠시 사용한 뒤 모두 버린다면 고정된 크기의 블록을 갖는 메모리 관리자는 메모리 풀로 사용할 수 있다.
+  - 메모리 풀에서 할당은 정상적으로 진행되지만 메모리는 전혀 해제되지 않는다.
+- 일반 메모리 관리자는 서로 다른 아레나에서 서로 다른 크기 요청을 처리하고 서로 다른 크기 요청을 서로 다른 빈칸 목록으로 반환하도록 설계할 수 있다.
+
+### 13.3.6 스레드 세이프하지 않은 메모리 관리자는 효율적입니다
+- 고정된 크기의 블록을 갖는 메모리 관리자가 효율적인 이유 중 하나는 스레드 세이프하지 않기 때문이다.
+- 스레드 세이프하지 않은 메모리 관리자가 효율적인 이유는 두 가지이다.
+  1. **임계 구역**을 직렬화하는 동기화 메커니즘이 필요하지 않다.
+  2. **동기화 장치**를 사용하지 않으므로 효율적이다.
+- 클래스가 클래스 한정 메모리 관리자를 구현했다면 프로그램 전체가 멀티스레드더라도 주어진 클래스를 하나의 스레드에서만 사용한다면 기다릴 필요가 없다.
+- 메모리 관리자를 호출하면 멀티스레드 프로그램에서 하나의 스레드에서만 사용하는 객체에 대해서도 경합이 발생한다.
+- 스레드 세이프하지 않은 메모리 관리자는 스레드 세이프한 메모리 관리자보다 쉽게 만들 수 있다.
+  - **임계 구역을 최소화**해 메모리 관리자를 효율적으로 실행할 수 있기 때문이다.
