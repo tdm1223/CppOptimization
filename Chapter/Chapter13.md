@@ -460,3 +460,293 @@ fixed_block_memory_manager<fixed_arena_controller>
 - 메모리 관리자를 호출하면 멀티스레드 프로그램에서 하나의 스레드에서만 사용하는 객체에 대해서도 경합이 발생한다.
 - 스레드 세이프하지 않은 메모리 관리자는 스레드 세이프한 메모리 관리자보다 쉽게 만들 수 있다.
   - **임계 구역을 최소화**해 메모리 관리자를 효율적으로 실행할 수 있기 때문이다.
+
+## 13.4 사용자 정의 표준 라이브러리 할당자 제공하기
+- 표준 라이브러리 컨테이너는 메모리 관리를 사용자가 지정할 수 있도록 인수 `Allocator`를 받는다.
+  - `Allocator`는 메모리를 관리하는 템플릿 클래스이다.
+  - 메모리 관리자에서 **저장 공간을 검색**한다.
+  - 저장 공간을 **메모리 관리자로 반환**한다.
+  - 연관된 할당자를 **복사 생성**한다.
+- 노드 기반의 컨테이너 중 하나라면 **사용자 정의 할당자**를 구현해 성능을 향상시킬 수 있다.
+- 기본 할당자인 `std::allocator<T>`는 `::operator new()`를 둘러싸는 **래퍼**이다.
+  - 개발자는 기본 할당자가 아닌 다른 작동을 하는 할당자를 제공할 수 있다.
+
+#### 할당자의 두 가지 종류
+- 상태가 없는 할당자
+  - **정적 상태가 아닌 할당자 타입**을 말한다.
+  - 표준 라이브러리 컨테이너의 기본 할당자인 `std::allocator<T>`는 상태가 없는 할당자이다.
+  - 상태가 없는 할당자는 **기본 생성**할 수 있다.
+  - 상태가 없는 할당자는 **컨테이너 인스턴스의 공간**을 차지하지 않는다.
+  - 상태가 없는 할당자 `my_allocator<T>`의 두 인스턴스를 구별할 수 없다.
+  - 이동 대입과 `std::swap()`을 효율적으로 수행할 수 있다.
+- 상태가 있는 할당자
+  - 만들고 사용하기가 더 복잡하다.
+  - 지역 상태를 갖는 할당자는 대부분의 경우 **기본 생성할 수 없다.**
+  - 할당자를 생성한 다음 컨테이너의 생성자에게 전달해야 한다.
+  - 모든 변수에 할당자의 상태를 저장해야 하므로 **크기가 증가**한다.
+  - 같은 타입을 갖는 두 할당자가 같은지 **비교하지 못할 수도 있다.**
+  - 전역 메모리 관리자를 통해 모든 요청을 처리하지 않아도 되는 경우 여러 종류의 메모리 아레나를 다양한 용도로 쉽게 만들 수 있다.
+
+### 13.4.1 미니멀한 C++11 할당자
+- `C++11`을 지원하는 컴파일러와 표준 라이브러리를 갖고 있다면 미니멀한 할당자를 제공할 수 있다.
+- 아래는 std::allocator에서 수행하는 작업을 대략적으로 나타낸 할당자 코드이다.
+```cpp
+template<typename T> struct my_allocator {
+  using value_type = T;
+  my_allocator() = default;
+
+  template<class U> my_allocator(const my_allocator<U>&) {}
+
+  T* allocate(std::size_t n, void const* hint = 0)
+  {
+    return reinterpret_cast<T*>(::operator new(n * sizeof(T)));
+  }
+
+  void deallocate(T* ptr, size_t)
+  {
+    ::operator delete(ptr);
+  }
+};
+
+template<typename T, typename U>
+inline bool operator==(const my_allocator<T>&, const my_allocator<U>&)
+{
+  return true;
+}
+
+template<typename T, typename U>
+inline bool operator!=(const my_allocator<T>& a, const my_allocator<U>& b)
+{
+  return !(a == b);
+}
+```
+- 미니멀한 할당자는 아래 몇 가지 함수를 포함한다.
+
+#### allocator
+- 기본 생성자이다.
+- 할당자에 기본 생성자가 있다면 개발자는 인스턴스를 명시적으로 생성해 컨테이너의 생성자에게 전달할 필요가 없다.
+- **상태가 없는 할당자**에는 기본 생성자의 본문이 비어있으며 **정적 상태가 아닌 할당자**에서는 기본 생성자가 없다.
+
+#### template <typename U> allocator(U&)
+- 이 복사 생성자를 사용하면 `allocator<T>`를 `allocator<treenode<T>>`처럼 **연관**되어 있는 `private` 클래스의 할당자로 변환할 수 있다.
+- 이 복사 생성자는 대부분의 컨테이너가 `T`타입의 노드를 할당하지 않기 때문에 중요하다.
+- **상태가 없는 할당자**에는 복사 생성자의 본문이 비어있으며 **정적 상태가 아닌 할당자**에서는 상태를 복사하거나 복제해야 한다.
+
+#### T* allocate(std::size_t n, void const* hint = 0)
+- `n`바이트를 저장할 수 있는 충분한 저장 공간을 할당한 뒤 저장 공간을 가리키는 포인터를 반환하거나 `std::bad_alloc`을 던진다.
+- `hInt`는 **지역성**과 관련해 지정되지 않은 방법으로 할당하는 것을 돕기 위한 인수이다.
+
+#### void deallocate(T* ptr, size_t)
+- `allocate()`에서 반환했던 **저장 공간을 해제한 뒤 메모리 관리자에게 반환**한다.
+- 인수 `p`는 저장 공간을 가리키며 `n`은 차지하는 바이트를 나타낸다.
+- `n`은 `p`가 가리키는 저장 공간을 `allocate()`를 통해 할당했을 때 넣었던 인수값과 같아야 한다.
+
+#### bool operator==(allocator const& a) const와 bool operator!=(allocator const& a) const
+- 같은 타입의 두 할당자 인스턴스가 서로 같은지를 검사한다.
+- 두 인스턴스가 같다면 하나의 할당자 인스턴스에서 할당된 객체를 다른 할당자 인스턴스에서 **안전하게 해제**할 수 있다.
+  - 두 인스턴스가 **같은 저장 공간에 객체를 할당**한다는 것을 의미한다.
+- 상태가 없는 할당자는 똑같은지 검사할 때 무조건 `true`를 반환한다.
+- 정적인 상태가 아닌 할당자는 똑같은지 검사할 때 할당자의 상태를 비교하거나 `false`를 반환해야 한다.
+
+### 13.4.2 C++98 할당자의 추가 정의
+- `C++11` 이전에 모든 할당자는 미니멀한 할당자에 있는 모든 함수뿐만 아니라 다음 함수들을 추가로 포함하고 있다.
+
+#### value_type
+- 할당할 객체의 타입
+
+#### size_type
+- 이 할당자가 할당할 수 있는 **최대 바이트 수**를 저장할 수 있을 정도로 충분히 큰 **정수 타입**
+- 표준 라이브러리 컨테이너 템플릿에서 매개변수로 사용하는 할당자의 경우 `typedef size_t size_type;`으로 정의되어 있어야 한다.
+
+#### deifference_type
+- **두 포인터 사이의 최대 차이**를 저장할 수 있을 정도로 충분히 큰 **정수 타입**
+- 표준 라이브러리 컨테이너 템플릿에서 매개변수로 사용하는 할당자의 경우 `typedef ptrdiff_t difference_type;`으로 정의되어 있어야 한다.
+
+#### pointer, const_pointer
+- `(const) T`를 가리키는 **포인터의 타입**
+- 표준 라이브러리 컨테이너 템플릿에서 매개변수로 사용하는 할당자의 경우 두 타입은 아래와 같이 정의되어 있어야 한다.
+```cpp
+typedef T* pointer;
+typedef T const* const_pointer;
+```
+- 다른 할당자의 경우 `pointer`는 포인터를 역참조하는 `operator()`를 구현한 포인터와 비슷한 클래스일 수 있다.
+
+#### reference, const_reference
+- `(const) T`를 가리키는 **참조 타입**
+- 표준 라이브러리 컨테이너 템플릿에서 매개변수로 사용하는 할당자의 경우 두 타입은 아래와 같이 정의되어 있어야 한다.
+```cpp
+typedef T& reference;
+typedef T const& const_reference;
+```
+
+#### pointer address(reference), const_pointer address(const_reference)
+- `(const) T`를 가리키는 **참조**가 주어졌을 때 `(const) T`를 가리키는 **포인터를 생성**하는 함수
+
+#### pointer address(reference r){ return &r; }, const_pointer address(const_reference r){ return &r; }
+- 두 함수는 **메모리 모델을 추상화**하기 위한 것이다.
+- 표준 라이브러리 컨테이너와의 **호환성을 방해**한다.
+- 실제로는 `T*`가 되기 위해서는 `pointer`가 필요하다.
+- **임의 접근 반복자**와 **이진 검색**을 효율적으로 수행할 수 있다.
+- 표준 라이브러리 컨테이너에서 사용하는 할당자를 위한 고정값들이 있음에도 불구하고 정의가 필요하다.
+  - `C++98`의 컨테이너 코드에서 사용하기 때문이다.
+```cpp
+typedef size_type allocator::size_type;
+```
+- `std::allocator`는 언젠가 바뀔수도 있다.
+  - 초기에는 많이 바뀌었고 `C++11`에서 다시 바뀌었다.
+  - 또 바뀔지 모른다는 두려움을 가지는 것이 당연하다.
+- 또 다른 접근법은 정의에서 가장 변하지 않는 부분을 간단하게 뽑을 수 있다.
+```cpp
+template <typenamt T> struct std::allocator_defs {
+  typedef T value_type;
+  typedef T* pointer;
+  typedef const T* const_pointer;
+  typedef T& reference;
+  typedef const T& const_reference;
+  typedef size_t size_type;
+  typedef ptrdiff_t difference_type;
+
+  pointer address(reference r) { return &r; }
+  const_pointer address(const_reference r) { return &r; }
+}
+```
+- 이 정의를 **특성 클래스**로 만들 수 있다.
+- `C++11`의 미니멀한 할당자가 수행하는 작업이며 **특성 클래스**만 역방향으로 작동한다.
+- **특성 클래스**는 할당자 템플릿을 살펴보고 정의가 있는지 확인하고 할당자가 없을 경우 표준 정의를 제공한다.
+- 컨테이너 코드는 할당자가 아닌 `allocator_traits` 클래스를 참조한다.
+```cpp
+typedef std::allocator_traits<MyAllocator<T>>::value_type value_type;
+```
+
+#### void construct(pointer p, const T& val)
+- 메모리 지정 `new`를 사용해 `T`의 인스턴스를 복사 생성한다.
+```cpp
+new(p) T(val);
+```
+- `C++11`에서는 이 함수를 정의해 **인수 목록을 T 생성자에게 제공**할 수 있다.
+```cpp
+template <typename U, typename... Args>
+void construct(U* p, Args&&... args){
+  new(p) T(std::forward<Args>(args...));
+}
+```
+
+#### void destroy(pointer p);
+- `p->~T();`를 호출해 **T가 가리키는 포인터를 파괴**한다.
+
+#### rebind::value
+- 구조체 `rebind`의 선언은 할당자의 핵심이다.
+- `rebind`는 보통 다음과 같은 구조를 갖는다.
+```cpp
+template <typename U> struct rebind {
+  typedef allocator<U> value;
+};
+```
+- `rebind`는 `allocator<T>`에서 새 타입 `U`를 위한 **할당자를 만드는 방법을 제공**한다.
+  - 모든 할당자는 이 방법을 제공해야 한다.
+  - `std::list<T>`와 같은 컨테이너가 `std::list<T>::listnode<T>`의 인스턴스를 할당하는 방법이다.
+  - 대부분의 컨테이너에서 타입 `T`의 노드가 할당되지 않는다.
+- 아래는 미니멀한 `C++11` 할당자와 같은 `C++98` 스타일 할당자의 전체 코드이다.
+```cpp
+template <typename T> struct my_allocator_98 :
+  public std_allocator_defs<T> {
+  template <typename U> struct rebind {
+    typedef my_allocator_98<U, n> other;
+  };
+
+  my_allocator_98() {/* 비어 있음 */ }
+  my_allocator_98(my_allocator_98 const&) {/* 비어 있음 */ }
+
+  void construct(pointer p, const T& t) {
+    new(p) T(t);
+  }
+  void destroy(pointer p) {
+    p->~T();
+  }
+  size_type max_size() const {
+    return block_o_memory::blocksize;
+  }
+  pointer allocate(size_type n, typename std::allocator<void>::const_pointer = 0) {
+    return reinterpret_cast<T*>(::operator new(n * sizeof(T)));
+  }
+  void deallocate(pointer p, size_type) {
+    ::operator delete(ptr);
+  }
+};
+
+template <typename T, typename U>
+inline bool operator==(const my_allocator_98<T>&, const my_allocator_98<U>&) {
+  return true;
+}
+
+template <typename T, typename U>
+inline bool operator!=(const my_allocator_98<T>& a, const my_allocator_98<U>& b) {
+  return !(a == b);
+}
+```
+
+### 13.4.3 고정된 크기의 블록을 갖는 할당자
+- 표준 라이브러리 컨테이너 클래스(`std::list`, `std::map`, `std::multimap`, `std::set`, `std::multiset`)는 모두 **여러 개의 노드에서 자료구조**를 만든다.
+- 이 클래스들은 **고정된 크기의 블록을 갖는 메모리 관리자를 사용해 구현된 할당자**를 사용할 수 있다.
+  - `allocate()`함수와 `deallocate()`함수를 제외하곤 모두 동일하다.
+```cpp
+extern fixed_block_memory_manager<fixed_arena_controller>
+  list_memory_manager;
+
+template <typename T> class StatelessListAllocator{
+public:
+  pointer allocate(
+    size_type count,
+    typename std::allocator<void>::const_pointer = nullptr){
+      return reinterpret_cast<pointer>(list_memory_manager.allocate(count * sizeof(T)));
+    }
+    void deallocate(pointer p, size_type){
+      string_memory_manager.deallocate(p);
+    }
+};
+```
+- `std::list`는 `T` 타입의 노드를 할당하려고 시도하지 않는다.
+- 템플릿 매개변수 `Allocator`를 사용해 `list_memory_manager.allocate(sizeof(<listnode<T>>))`를 호출해서 `listnode<T>`를 생성한다.
+- `std::list`는 다른 리스트 노드와 크기가 다른 특별한 **센티넬 노드**를 할당한다.
+  - 센티넬 노드는 일반 리스트 노드보다 작기 때문에 고정된 크기의 블록을 갖는 메모리 관리자가 작동할 수 있도록 수정이 필요하다.
+- `allocate()`가 현재 요청한 크기가 저장된 블록 크기와 같은지 검사하는 대신 저장된 블록 크기보다 크지 않은지만 검사하도록 바꾼다.
+```cpp
+template <class Arena>
+inline void* fixed_block_memory_manager<Arena>::allocate(size_t size){
+  if(empty()){
+    free_ptr_ = reinterpret_cast<free_block*>(arena_.allocate(size));
+    block_size_ = size;
+    if (empty())
+      throw std::bad_alloc();
+  }
+
+  if (size > block_size_)
+    throw std::bad_alloc();
+  auto p = free_ptr_;
+  free_ptr_ = free_ptr_->next;
+  return p;
+}
+```
+- 고정된 크기의 블록을 갖는 할당자는 기본 할당자보다 5.6배 빠르다.
+
+### 13.4.4 문자열에 대한 고정된 크기의 블록을 갖는 할당자
+- `std::string`은 동적으로 할당된 `char` 배열에 내용을 저장한다.
+- 문자열의 길이가 길어질수록 배열을 더 큰 크기로 재할당하기 때문에 고정 블록을 갖는 할당자는 적합하지 않아 보인다.
+- 프로그램에서 문자열이 취할 수 있는 최대 길이를 안다면 항상 **최대 길이의 고정된 블록을 생성하는 할당자**를 만들 수 있다.
+```cpp
+template <typename T> class NewAllocator{
+public:
+  ...
+  pointer allocate(
+    size_type /*count*/,
+    typename std::allocator<void>::const_pointer = nullptr){
+      return reinterpret_case<pointer>(string_memory_manager.allocate(512));
+  }
+  
+  void deallocate(pointer p, size_type) {
+    ::operator delete(p);
+  }
+}
+```
+- `allocate()`가 요청한 크기를 **완전히 무시한 채 고정된 크기의 블록을 반환**한다.
+- 성능이 향상되기는 하지만 [다른 최적화 기법](/Chapter/Chapter4.md)이 더 나은 결과를 보여준다.
